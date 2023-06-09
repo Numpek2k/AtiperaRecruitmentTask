@@ -3,52 +3,58 @@ package com.example.atipera.service;
 import com.example.atipera.model.Branch;
 import com.example.atipera.model.Commit;
 import com.example.atipera.model.GitRepository;
-import lombok.AllArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 
 @Service
-@AllArgsConstructor
 public class GitHubService {
     private final String gitHubBaseUrl = "https://api.github.com/";
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final WebClient webClient;
 
-    public List<GitRepository> listUserRepositories(String username){
+    public Mono<List<GitRepository>> listUserRepositories(String username){
         String url = gitHubBaseUrl + "users/" + username + "/repos";
-        ResponseEntity<GitRepository[]> responseEntity = restTemplate.getForEntity(url, GitRepository[].class);
-        GitRepository[] repos = responseEntity.getBody();
-        if (repos != null) {
-            List<GitRepository> reposList = Arrays.stream(repos)
-                    .filter(repo -> !repo.isFork())
-                    .toList();
-            reposList.forEach(repo -> repo.setBranches(getBranches(repo.getOwner().getLogin(), repo.getName())));
-            return reposList;
-        }
-        throw new ArrayStoreException("Empty array");
+        return webClient.get()
+                .uri(url)
+                .retrieve()
+                .bodyToFlux(GitRepository.class)
+                .filter(repo -> !repo.fork())
+                .flatMap(repo -> getBranches(repo.owner().login(), repo.name())
+                        .collectList()
+                        .map(branches -> new GitRepository(
+                                repo.name(),
+                                repo.owner(),
+                                branches,
+                                repo.fork())))
+                .collectList();
     }
 
-    private List<Branch> getBranches(String ownerLogin, String repoName) {
-        List<Branch> branchesList = new ArrayList<>();
+    private Flux<Branch> getBranches(String ownerLogin, String repoName) {
         String url = gitHubBaseUrl + "repos/" + ownerLogin + "/" + repoName + "/branches";
-        Branch[] branches = restTemplate.getForEntity(url, Branch[].class).getBody();
-
-        assert branches != null;
-
-        for (Branch branch : branches) {
-            String commitUrl = gitHubBaseUrl + "/repos/" + ownerLogin + "/" + repoName + "/commits?sha=" + branch.getName();
-            ResponseEntity<Commit[]> responseCommits = restTemplate.getForEntity(commitUrl, Commit[].class);
-            if (Objects.requireNonNull(responseCommits.getBody()).length > 0) {
-                Commit commit = responseCommits.getBody()[0];
-                branch.setCommit(commit);
-            }
-            branchesList.add(branch);
-        }
-        return branchesList;
+        return webClient.get()
+                .uri(url)
+                .retrieve()
+                .bodyToFlux(Branch.class)
+                .flatMap(branch -> getCommit(ownerLogin, repoName, branch.name())
+                        .map(commit -> new Branch(
+                                branch.name(),
+                                commit)));
     }
+
+    private Mono<Commit> getCommit(String ownerLogin, String repoName, String branchName){
+        String commitUrl = gitHubBaseUrl + "/repos/" + ownerLogin + "/" + repoName + "/commits?sha=" + branchName;
+        return webClient.get()
+                .uri(commitUrl)
+                .retrieve()
+                .bodyToFlux(Commit.class)
+                .next();
+    }
+
+    public GitHubService(WebClient.Builder webClientBuilder) {
+        this.webClient = webClientBuilder.baseUrl(gitHubBaseUrl).build();
+    }
+
 }

@@ -1,15 +1,9 @@
 package com.example.atipera.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
-
 import java.util.List;
 
-@Data
-public class GitRepository {
-    private String name;
-    private Owner owner;
-    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
-    private boolean fork;
-    private List<Branch> branches;
+public record GitRepository(String name, Owner owner,
+                            List<Branch> branches,
+                            @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) boolean fork) {
 }

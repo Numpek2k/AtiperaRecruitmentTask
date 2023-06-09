@@ -1,8 +1,4 @@
 package com.example.atipera.model;
 
-import lombok.Data;
-
-@Data
-public class Owner {
-    private String login;
+public record Owner(String login) {
 }
